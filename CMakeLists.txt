@@ -27,3 +27,21 @@ function(add_efi_executable ARCH TARGET_NAME)
     )
 endfunction()
 add_efi_executable(x86_64 SwiftBoot_x86_64 "src/Main.cpp" "src/FS.cpp" "src/Utils.cpp" "src/Graphics.cpp" "src/Json.cpp" "src/Elf.cpp")
+function(create_efi_partition TARGET_NAME ARCH PARTITION_TARGET PARTITION_SIZE CONFIG_JSON)
+    message("Copying ${TARGET_NAME} and ${CONFIG_JSON} to ${PARTITION_TARGET}")
+    add_custom_command(
+        OUTPUT ${PARTITION_TARGET}.img
+        COMMAND dd if=/dev/zero of=${PARTITION_TARGET}.img bs=512 count=${PARTITION_SIZE} conv=notrunc
+        COMMAND mformat -i ${PARTITION_TARGET}.img -h 32 -t 32 -n 64 -c 1
+        COMMAND mmd -i ${PARTITION_TARGET}.img ::/EFI
+        COMMAND mmd -i ${PARTITION_TARGET}.img ::/EFI/BOOT
+        COMMAND mcopy -i ${PARTITION_TARGET}.img ${TARGET_NAME} ::/EFI/BOOT/BOOT${ARCH}.efi
+        COMMAND mmd -i ${PARTITION_TARGET}.img ::/swift
+        COMMAND mcopy -i ${PARTITION_TARGET}.img ${CONFIG_JSON} ::/swift/config.json
+        DEPENDS ${TARGET_NAME} ${CONFIG_JSON}
+        COMMENT "Creating efi partition"
+    )
+    add_custom_target(${PARTITION_TARGET} ALL
+        DEPENDS ${PARTITION_TARGET}.img
+    )
+endfunction()

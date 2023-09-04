@@ -7,6 +7,7 @@
 extern "C" EFI_STATUS efi_main(EFI_HANDLE imageHandle, EFI_SYSTEM_TABLE* systemTable)
 {
     InitializeLib(imageHandle, systemTable);
+    Print((const CHAR16*)L"Entering SwiftBoot\n");
     EFI_STATUS status = swiftboot::disableWatchdog();
     if (status)
     {
