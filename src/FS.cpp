@@ -1,29 +1,16 @@
 #include <SwiftBootFS.hpp>
-EFI_STATUS swiftboot::getRoot(EFI_HANDLE imageHandle, EFI_FILE_HANDLE* handle)
+swiftboot::EfiFileSystem::EfiFileSystem(EFI_HANDLE imageHandle)
 {
     EFI_LOADED_IMAGE* loadedImage;
-    EFI_STATUS status = BS->HandleProtocol(imageHandle, &gEfiLoadedImageProtocolGuid, (void**)&loadedImage);
+    EFI_STATUS status = uefi_call_wrapper((void*)BS->HandleProtocol, 3, imageHandle, &gEfiLoadedImageProtocolGuid, (void**)&loadedImage);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
-        return status;
+        return;
     }
-    EFI_FILE_IO_INTERFACE* ioInterface;
-    status = BS->HandleProtocol(loadedImage->DeviceHandle, &gEfiFileSystemInfoGuid, (void**)&ioInterface);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    status = ioInterface->OpenVolume(ioInterface, handle);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    return EFI_SUCCESS;
+    root = LibOpenRoot(loadedImage->DeviceHandle);
 }
-EFI_STATUS swiftboot::openFile(EFI_FILE_HANDLE root, const CHAR16* path, EFI_FILE_HANDLE* file)
+swiftboot::File swiftboot::EfiFileSystem::openFile(const CHAR16* path)
 {
     CHAR16* fileName = (CHAR16*)AllocateZeroPool(sizeof(CHAR16));
     UINTN i = 0;
@@ -35,145 +22,89 @@ EFI_STATUS swiftboot::openFile(EFI_FILE_HANDLE root, const CHAR16* path, EFI_FIL
         StrCat(fileName, tmp);
     }
     EFI_FILE_HANDLE handle;
-    EFI_STATUS status = root->Open(root, &handle, fileName, EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY | EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+    EFI_STATUS status = uefi_call_wrapper((void*)root->Open, 5, root, &handle, fileName, EFI_FILE_MODE_READ,
+        EFI_FILE_READ_ONLY | EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
-        return status;
+        return File();
     }
+    File file = File(handle, this);
     if (path[i] == 0)
     {
-        *file = handle;
+        return File(handle, this);
     }
     else
     {
-        EFI_STATUS status = openFile(handle, &path[i + 1], file);
-        if (status)
-        {
-            SHOW_ERROR_MESSAGE(status);
-            return status;
-        }
+        return openFile(file, &path[i + 1]);
     }
-    return EFI_SUCCESS;
+    SHOW_ERROR_MESSAGE(EFI_NOT_FOUND);
+    return File();
 }
-EFI_STATUS swiftboot::getFileSize(EFI_FILE_HANDLE file, UINTN* size)
+swiftboot::File swiftboot::EfiFileSystem::openFile(File parentFile, const CHAR16* path)
 {
-    EFI_FILE_INFO* info = LibFileInfo(file);
-    *size = info->Size;
-    return EFI_SUCCESS;
+    CHAR16* fileName = (CHAR16*)AllocateZeroPool(sizeof(CHAR16));
+    UINTN i = 0;
+    for (; path[i] && path[i] != '/'; i++)
+    {
+        CHAR16 tmp[2];
+        tmp[0] = path[i];
+        tmp[1] = 0;
+        StrCat(fileName, tmp);
+    }
+    EFI_FILE_HANDLE handle;
+    EFI_FILE_HANDLE parent = (EFI_FILE_HANDLE)parentFile.handle;
+    EFI_STATUS status = uefi_call_wrapper((void*)parent->Open, 5, parent, &handle, fileName, EFI_FILE_MODE_READ,
+        EFI_FILE_READ_ONLY | EFI_FILE_HIDDEN | EFI_FILE_SYSTEM);
+    if (status)
+    {
+        SHOW_ERROR_MESSAGE(status);
+        return File();
+    }
+    File file = File(handle, this);
+    if (path[i] == 0)
+    {
+        return File(handle, this);
+    }
+    else
+    {
+        return openFile(file, &path[i + 1]);
+    }
+    SHOW_ERROR_MESSAGE(EFI_NOT_FOUND);
+    return File();
 }
-EFI_STATUS swiftboot::readFile(EFI_FILE_HANDLE file, UINTN size, void* buffer)
+size_t swiftboot::EfiFileSystem::getFileSize(File* file)
 {
-    EFI_STATUS status = file->Read(file, &size, buffer);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    return EFI_SUCCESS;
+    EFI_FILE_INFO* info = LibFileInfo((EFI_FILE_HANDLE)file->handle);
+    return info->Size;
 }
-EFI_STATUS swiftboot::closeFile(EFI_FILE_HANDLE file)
+void swiftboot::EfiFileSystem::readFile(File* file, void* buffer, size_t size)
 {
-    EFI_STATUS status = file->Close(file);
+    EFI_FILE_HANDLE handle = (EFI_FILE_HANDLE)file->handle;
+    EFI_STATUS status = uefi_call_wrapper((void*)handle->Read, 3, handle, &size, buffer);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
-        return status;
     }
-    return EFI_SUCCESS;
 }
-EFI_STATUS swiftboot::openAndReadFile(EFI_FILE_HANDLE root, const CHAR16* path, void** buffer, UINTN* size)
+void swiftboot::EfiFileSystem::closeFile(File* file)
 {
-    EFI_FILE_HANDLE configFile;
-    EFI_STATUS status = swiftboot::openFile(root, path, &configFile);
+    EFI_FILE_HANDLE handle = (EFI_FILE_HANDLE)file->handle;
+    EFI_STATUS status = uefi_call_wrapper((void*)handle->Close, 1, handle);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
-        return status;
     }
-    status = swiftboot::getFileSize(configFile, size);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    *buffer = AllocatePool(*size);
-    status = swiftboot::readFile(configFile, *size, *buffer);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    status = swiftboot::closeFile(configFile);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    return EFI_SUCCESS;
 }
-EFI_STATUS swiftboot::openAndReadASCII(EFI_FILE_HANDLE root, const CHAR16* path, CHAR8** buffer)
+void swiftboot::File::close()
 {
-    EFI_FILE_HANDLE configFile;
-    EFI_STATUS status = swiftboot::openFile(root, path, &configFile);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    UINTN size;
-    status = swiftboot::getFileSize(configFile, &size);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    *buffer = (CHAR8*)AllocatePool(size + 1);
-    *buffer[size] = 0;
-    status = swiftboot::readFile(configFile, size, *buffer);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    status = swiftboot::closeFile(configFile);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    return EFI_SUCCESS;
+    fileSystem->closeFile(this);
 }
-EFI_STATUS swiftboot::getRoot(const CHAR16* partitionName, EFI_FILE_HANDLE* file)
+void swiftboot::File::readSome(void* buffer, size_t size)
 {
-    UINTN handleCount;
-    EFI_HANDLE* handles;
-    EFI_STATUS status = BS->LocateHandleBuffer(ByProtocol, &gEfiSimpleFileSystemProtocolGuid, NULL, &handleCount, &handles);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    for (UINTN i = 0; i < handleCount; i++)
-    {
-        EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* protocol;
-        status = BS->OpenProtocol(handles[i], &gEfiSimpleFileSystemProtocolGuid, (void**)&protocol, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
-        if (status)
-        {
-            SHOW_ERROR_MESSAGE(status);
-            return status;
-        }
-        status = protocol->OpenVolume(protocol, file);
-        if (status)
-        {
-            SHOW_ERROR_MESSAGE(status);
-            return status;
-        }
-        EFI_FILE_INFO* info = LibFileInfo(*file);
-        if (StrCmp(partitionName, info->FileName) == 0)
-        {
-            return EFI_SUCCESS;
-        }
-    }
-    return EFI_NOT_FOUND;
+    fileSystem->readFile(this, buffer, size);
+}
+size_t swiftboot::File::getSize()
+{
+    return fileSystem->getFileSize(this);
 }

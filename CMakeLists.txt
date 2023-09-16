@@ -11,10 +11,11 @@ function(add_efi_executable ARCH TARGET_NAME)
     find_file(GNUEFI_LINKER_SCRIPT NAMES "elf_${ARCH}_efi.lds" HINTS /usr/lib /usr/local/lib REQUIRED)
     include_directories(${GNUEFI_INCLUDE_DIR} ${GNUEFI_INCLUDE_DIR}/${ARCH} ${GNUEFI_INCLUDE_DIR}/protocol)
     add_library(${TARGET_NAME}_shared SHARED ${ARGN} ${GNUEFI_CRT0})
-    target_compile_options(${TARGET_NAME}_shared PRIVATE -fpic -fno-stack-protector -fshort-wchar -mno-red-zone)
+    target_compile_options(${TARGET_NAME}_shared PRIVATE -fno-rtti -fno-exceptions -fpic -fno-stack-protector -ffreestanding -fshort-wchar -mno-red-zone)
     target_compile_definitions(${TARGET_NAME}_shared PRIVATE EFI_FUNCTION_WRAPPER)
     target_link_libraries(${TARGET_NAME}_shared PRIVATE ${GNUEFI_LIBEFI} ${GNUEFI_LIBGNUEFI})
-    target_link_options(${TARGET_NAME}_shared PRIVATE -Wl,-shared -Wl,-Bsymbolic -Wl,-T${GNUEFI_LINKER_SCRIPT} -nostdlib -Wl,-znocombreloc)
+    target_link_options(${TARGET_NAME}_shared PRIVATE -Wl,-ffreestanding -Wl,-shared -Wl,-Bsymbolic -Wl,-T${GNUEFI_LINKER_SCRIPT} -nostdlib -Wl,-nostdlib
+        -Wl,-znocombreloc -nostdlib -ffreestanding -shared -Bsymbolic)
     add_custom_command(
         OUTPUT ${TARGET_NAME}.efi
         COMMAND ${CMAKE_OBJCOPY} -j .text -j .sdata -j .data -j .dynamic -j .dynsym -j .rel -j .rela -j .rel.* -j .rela.* -j .reloc
@@ -45,3 +46,33 @@ function(create_efi_partition TARGET_NAME ARCH PARTITION_TARGET PARTITION_SIZE C
         DEPENDS ${PARTITION_TARGET}.img
     )
 endfunction()
+option(BUILD_TESTS "Whether to build tests" ON)
+if(BUILD_TESTS)
+    create_efi_partition(SwiftBoot_x86_64.efi X64 SwiftBoot_x86_64_part 91669 "${CMAKE_SOURCE_DIR}/test/config.json")
+    add_custom_command(
+        OUTPUT disk.img
+        COMMAND qemu-img create -f raw disk.img 5G
+        COMMAND parted disk.img -s -a minimal mklabel gpt
+        COMMAND parted disk.img -s -a minimal mkpart EFI FAT16 2048s 93716s
+        COMMAND parted disk.img -s -a minimal toggle 1 boot
+        COMMENT "Creating 5GB disk image"
+    )
+    add_custom_target(disk ALL
+        DEPENDS disk.img
+    )
+    add_custom_target(
+        mount
+        COMMAND dd if=SwiftBoot_x86_64_part.img of=disk.img bs=512 count=91669 seek=2048 conv=notrunc
+        DEPENDS SwiftBoot_x86_64_part
+    )
+    add_custom_target(
+        run
+        COMMAND qemu-system-x86_64 -d interrupt -s -serial stdio -cpu qemu64 -m 256 -d cpu_reset -bios /usr/share/qemu/OVMF.fd -drive file=disk.img,if=ide
+        DEPENDS mount
+    )
+    add_custom_target(
+        debug
+        COMMAND qemu-system-x86_64 -d interrupt -s -S -serial stdio -cpu qemu64 -m 256 -d cpu_reset -bios /usr/share/qemu/OVMF.fd -drive file=disk.img,if=ide
+        DEPENDS mount
+    )
+endif()

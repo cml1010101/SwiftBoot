@@ -1,11 +1,11 @@
 #include <SwiftBootUtils.hpp>
 void swiftboot::showErrorMessage(EFI_STATUS status, const char* file, int line)
 {
-    Print((CHAR16*)L"Error: %e at %a:%d\n", status, file, line);
+    Print((CHAR16*)L"Error: %r at %a:%d\n", status, file, line);
 }
 EFI_STATUS swiftboot::disableWatchdog()
 {
-    EFI_STATUS status = BS->SetWatchdogTimer(0, 0, 0, nullptr);
+    EFI_STATUS status = uefi_call_wrapper((void*)BS->SetWatchdogTimer, 4, 0, 0, 0, nullptr);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
@@ -54,7 +54,7 @@ EFI_STATUS swiftboot::getMemoryMap(swiftboot::MemoryMap* map)
     UINTN mapKey;
     UINTN descriptorSize;
     UINT32 descriptorVersion;
-    EFI_STATUS status = BS->GetMemoryMap(&memoryMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
+    EFI_STATUS status = uefi_call_wrapper((void*)BS->GetMemoryMap, 5, &memoryMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
     if (status != EFI_BUFFER_TOO_SMALL)
     {
         if (status == EFI_SUCCESS)
@@ -65,7 +65,7 @@ EFI_STATUS swiftboot::getMemoryMap(swiftboot::MemoryMap* map)
         return status;
     }
     memoryMap = (EFI_MEMORY_DESCRIPTOR*)AllocatePool(memoryMapSize);
-    status = BS->GetMemoryMap(&memoryMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
+    status = uefi_call_wrapper((void*)&memoryMapSize, 4, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
@@ -91,7 +91,7 @@ EFI_STATUS swiftboot::allocatePage(UINT64 virtualAddress)
     UINTN mapKey;
     UINTN descriptorSize;
     UINT32 descriptorVersion;
-    EFI_STATUS status = BS->GetMemoryMap(&memoryMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
+    EFI_STATUS status = uefi_call_wrapper((void*)BS->GetMemoryMap, 5, &memoryMapSize, memoryMap, &mapKey, &descriptorSize, &descriptorVersion);
     if (status != EFI_BUFFER_TOO_SMALL)
     {
         if (status == EFI_SUCCESS)
@@ -155,7 +155,7 @@ EFI_STATUS swiftboot::allocatePage(UINT64 virtualAddress)
         return EFI_OUT_OF_RESOURCES;
     }
     memoryMapSize += sizeof(EFI_MEMORY_DESCRIPTOR);
-    status = ST->RuntimeServices->SetVirtualAddressMap(memoryMapSize, descriptorSize, descriptorVersion, memoryMap);
+    status = uefi_call_wrapper((void*)ST->RuntimeServices->SetVirtualAddressMap, 4, memoryMapSize, descriptorSize, descriptorVersion, memoryMap);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
@@ -165,7 +165,7 @@ EFI_STATUS swiftboot::allocatePage(UINT64 virtualAddress)
 }
 EFI_STATUS swiftboot::exitBootServices(EFI_HANDLE imageHandle, UINTN mapKey)
 {
-    EFI_STATUS status = BS->ExitBootServices(imageHandle, mapKey);
+    EFI_STATUS status = uefi_call_wrapper((void*)BS->ExitBootServices, 2, imageHandle, mapKey);
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);

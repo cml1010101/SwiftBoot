@@ -4,30 +4,22 @@
 #include <SwiftBootGraphics.hpp>
 #include <SwiftBoot.hpp>
 #include <SwiftBootElf.hpp>
-extern "C" EFI_STATUS efi_main(EFI_HANDLE imageHandle, EFI_SYSTEM_TABLE* systemTable)
+extern "C" EFI_STATUS EFIAPI efi_main(EFI_HANDLE imageHandle, EFI_SYSTEM_TABLE* systemTable)
 {
     InitializeLib(imageHandle, systemTable);
-    Print((const CHAR16*)L"Entering SwiftBoot\n");
+    Print((const CHAR16*)L"Entering SwiftBoot: %g\n", &gEfiLoadedImageProtocolGuid);
+    InitializeGuid();
     EFI_STATUS status = swiftboot::disableWatchdog();
     if (status)
     {
         SHOW_ERROR_MESSAGE(status);
         return status;
     }
-    EFI_FILE_HANDLE efiRoot;
-    status = swiftboot::getRoot(imageHandle, &efiRoot);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    CHAR8* configContent;
-    status = swiftboot::openAndReadASCII(efiRoot, (const CHAR16*)L"swift/config.json", &configContent);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
+    swiftboot::EfiFileSystem efiFS{imageHandle};
+    swiftboot::File configFile = efiFS[(const CHAR16*)L"swift/config.json"];
+    Print((const CHAR16*)L"Reading file");
+    CHAR8* configContent = configFile.readASCII();
+    Print((const CHAR16*)L"Read file");
     swiftboot::ConfigOptions config;
     status = swiftboot::getConfigOptions(configContent, &config);
     if (status)
@@ -105,70 +97,70 @@ extern "C" EFI_STATUS efi_main(EFI_HANDLE imageHandle, EFI_SYSTEM_TABLE* systemT
         swiftboot::GraphicsInfo::PixelType::PIXEL_TYPE_RGBA : swiftboot::GraphicsInfo::PixelType::PIXEL_TYPE_BGRA;
     bootInfo->graphics.pitch = gop->Mode->Info->PixelsPerScanLine * sizeof(uint32_t);
     bootInfo->acpi = (uintptr_t)acpi;
-    EFI_FILE_HANDLE partitionRoot;
-    status = swiftboot::getRoot(option.partition, &partitionRoot);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    void* kernelBuffer;
-    UINTN kernelSize;
-    status = swiftboot::openAndReadFile(partitionRoot, option.kernelPath, &kernelBuffer, &kernelSize);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    swiftboot::Elf elf(kernelBuffer);
-    if (!elf.checkHeader())
-    {
-        SHOW_ERROR_MESSAGE(EFI_INVALID_LANGUAGE);
-        return EFI_INVALID_LANGUAGE;
-    }
-    status = elf.loadProgramHeaders();
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    swiftboot::KernelMain kernelMain = (swiftboot::KernelMain)elf.getEntry();
-    uintptr_t initrdVirtualAddress;
-    status = elf.getSymbolValue("initrd_start", &initrdVirtualAddress);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    FreePool(kernelBuffer);
-    void* initrdBuffer;
-    UINTN initrdSize;
-    status = swiftboot::openAndReadFile(partitionRoot, option.initrdPath, &initrdBuffer, &initrdSize);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    status = swiftboot::allocatePages(initrdVirtualAddress, EFI_SIZE_TO_PAGES(initrdSize));
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    CopyMem((void*)initrdVirtualAddress, initrdBuffer, initrdSize);
-    FreePool(initrdBuffer);
-    status = swiftboot::getMemoryMap(&bootInfo->map);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    status = swiftboot::exitBootServices(imageHandle, bootInfo->map.mapKey);
-    if (status)
-    {
-        SHOW_ERROR_MESSAGE(status);
-        return status;
-    }
-    kernelMain(bootInfo);
+    // EFI_FILE_HANDLE partitionRoot;
+    // status = swiftboot::getRoot(option.partition, &partitionRoot);
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // void* kernelBuffer;
+    // UINTN kernelSize;
+    // status = swiftboot::openAndReadFile(partitionRoot, option.kernelPath, &kernelBuffer, &kernelSize);
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // swiftboot::Elf elf(kernelBuffer);
+    // if (!elf.checkHeader())
+    // {
+    //     SHOW_ERROR_MESSAGE(EFI_INVALID_LANGUAGE);
+    //     return EFI_INVALID_LANGUAGE;
+    // }
+    // status = elf.loadProgramHeaders();
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // swiftboot::KernelMain kernelMain = (swiftboot::KernelMain)elf.getEntry();
+    // uintptr_t initrdVirtualAddress;
+    // status = elf.getSymbolValue("initrd_start", &initrdVirtualAddress);
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // FreePool(kernelBuffer);
+    // void* initrdBuffer;
+    // UINTN initrdSize;
+    // status = swiftboot::openAndReadFile(partitionRoot, option.initrdPath, &initrdBuffer, &initrdSize);
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // status = swiftboot::allocatePages(initrdVirtualAddress, EFI_SIZE_TO_PAGES(initrdSize));
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // CopyMem((void*)initrdVirtualAddress, initrdBuffer, initrdSize);
+    // FreePool(initrdBuffer);
+    // status = swiftboot::getMemoryMap(&bootInfo->map);
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // status = swiftboot::exitBootServices(imageHandle, bootInfo->map.mapKey);
+    // if (status)
+    // {
+    //     SHOW_ERROR_MESSAGE(status);
+    //     return status;
+    // }
+    // kernelMain(bootInfo);
     return EFI_ABORTED;
 }

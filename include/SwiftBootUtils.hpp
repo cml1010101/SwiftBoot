@@ -1,7 +1,10 @@
 #ifndef SWIFTBOOTUTILS_HPP
 #define SWIFTBOOTUTILS_HPP
+extern "C"
+{
 #include <efi.h>
 #include <efilib.h>
+}
 #include <stddef.h>
 #include <SwiftBoot.hpp>
 #define SHOW_ERROR_MESSAGE(status) swiftboot::showErrorMessage(status, __FILE__, __LINE__)
